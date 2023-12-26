@@ -2,6 +2,7 @@
 import os
 import traceback
 from pathlib import Path
+import pathlib
 
 try:
     from tqdm import trange
@@ -38,8 +39,8 @@ inputs = {}
 inputs['depthmap_script_keepmodels'] = True
 inputs['output_path'] = "/code/outputs"
 inputs['compute_device'] = 'GPU'
-inputs['depthmap_input_image'] = Image.open('/code/data/0001.png') # PIL的一张原图
-inputs['depthmap_mode'] = '0'  # 0: Single image, 1: Batch Process, 2: Batch Process From Directory, 3: video mode
+# inputs['depthmap_input_image'] = Image.open('/code/data/0001.png') # PIL的一张原图
+# inputs['depthmap_mode'] = '0'  # 0: Single image, 1: Batch Process, 2: Batch Process From Directory, 3: video mode
 inputs['model_type'] = 9    # zoedepth_nk
 
 inputs['net_height'] = 512
@@ -55,7 +56,7 @@ inputs['stereo_modes'] = ['left-right']
 inputs['stereo_offset_exponent'] = 2
 inputs['stereo_separation'] = 0
 
-inputs['do_output_depth'] = True
+inputs['do_output_depth'] = False
 
 
 
@@ -69,8 +70,8 @@ inputs['depthmap_batch_input_dir'] = ''
 inputs['depthmap_batch_output_dir'] = ''
 inputs['depthmap_batch_reuse'] = True
 
-inputs['depthmap_vm_compress_bitrate'] = 15000
-inputs['depthmap_vm_compress_checkbox'] = False
+inputs['depthmap_vm_compress_bitrate'] = 10000
+inputs['depthmap_vm_compress_checkbox'] = True # avi to mp4
 inputs['depthmap_vm_custom'] = None
 inputs['depthmap_vm_custom_checkbox'] = False
 inputs['depthmap_vm_input'] = None
@@ -197,23 +198,83 @@ def convert_i16_to_rgb(image, like):
     output[:, :, 2] = image / 256.0
     return output
 
-def get_uniquefn(outpath, basename, ext, suffix=''):
+def get_time_uuid():
     basecount = str( datetime.datetime.utcnow() ).replace('-','').replace(' ', '-').replace('.','-').replace(':','') #+ str(uuid.uuid4())[:6]
+    return f"{basecount}-{get_commit_hash()}"
+
+def get_uniquefn(outpath, basename, ext):
     os.makedirs(outpath, exist_ok=True)
-    return os.path.join(outpath, f"{basename}-{basecount}-{get_commit_hash()}-{suffix}.{ext}")
+    return os.path.join(outpath, f"{basename}-{get_time_uuid()}.{ext}")
 
 
-def GetMonoDepth():
+def GetMonoDepth( input_images_path = [], input_depth_path = [], ops = {} ):
+
+    if 'gen_normalmap' not in ops:
+        genNormalMap = inputs['gen_normalmap']
+    else:
+        genNormalMap = ops['gen_normalmap']
+
+    if 'gen_stereo' not in ops:
+        genStereo = inputs['gen_stereo']
+    else:
+        genStereo = ops['gen_stereo']
+
+    if 'do_output_depth' not in ops:
+        genOutputDepth = inputs['do_output_depth']
+    else:
+        genOutputDepth = ops['do_output_depth']
+
+    if 'gen_rembg' not in ops:
+        genRembg = inputs['gen_rembg']
+    else:
+        genRembg = ops['gen_rembg']
     
     inputimages = []
     inputdepthmaps = []  # Allow supplying custom depthmaps
     inputnames = []  # Also keep track of original file names
 
-    inputimages.append(inputs['depthmap_input_image'])
-    inputdepthmaps.append(None) # 自定义的depth
-    inputnames.append(None)
+    hasCustomDepth = False
 
+    if len(input_depth_path) != 0:
+        hasCustomDepth = True
+        if len(input_depth_path) != len(input_images_path):
+            logger.error('custom depth array size need equals to input image array size')
+            return
 
+    for index in range(len(input_images_path)):
+        img = input_images_path[index]
+        if isinstance(img, np.ndarray):
+            inputimages.append( Image.fromarray(img) )
+        elif isinstance(img, Image.Image):
+            inputimages.append( img )
+        elif isinstance(img, str):
+            if os.path.exists(img) == False:
+                continue
+            inputimages.append( Image.open(img) )
+
+        if hasCustomDepth:
+            dep = input_depth_path[index]
+            if isinstance(dep, np.ndarray):
+                inputdepthmaps.append( Image.fromarray(dep) )
+            elif isinstance(dep, str):
+                if os.path.exists(dep) == False:
+                    continue
+                else:
+                    inputdepthmaps.append( PIL.open(dep) )
+            elif isinstance(dep, Image.Image):
+                inputdepthmaps.append( dep )
+        else:
+            inputdepthmaps.append(None) # 自定义的depth
+        inputnames.append(None)
+
+    if len(inputimages) == 0:
+        logger.error('custom depth array size need equals to input image array size')
+        return
+    if hasCustomDepth:
+        if len(inputimages) != len(inputdepthmaps):
+            logger.error('custom depth array need string or PIL.Image or np.ndarray')
+            return
+    
     inputdepthmaps_complete = all([x is not None for x in inputdepthmaps])
 
     background_removed_images = []
@@ -311,7 +372,7 @@ def GetMonoDepth():
                 inpaint_depths.append(img_output)
 
             # applying background masks after depth
-            if inputs['gen_rembg']:
+            if genRembg:
                 print('applying background masks')
                 background_removed_image = background_removed_images[count]
                 # maybe a threshold cut would be better on the line below.
@@ -331,7 +392,7 @@ def GetMonoDepth():
 
             # A weird quirk: if user tries to save depthmap, whereas custom depthmap is used,
             # custom depthmap will be outputed
-            if inputs['do_output_depth']:
+            if genOutputDepth:
                 img_depth = cv2.bitwise_not(img_output) if inputs['output_depth_invert'] else img_output
                 if inputs['output_depth_combine']:
                     axis = 1 if inputs['output_depth_combine_axis'] == 'Horizontal' else 0
@@ -342,7 +403,7 @@ def GetMonoDepth():
                 else:
                     yield count, 'depth', Image.fromarray(img_depth)
 
-            if inputs['gen_stereo']:
+            if genStereo:
                 # print("Generating stereoscopic image(s)..")
                 stereoimages = create_stereoimages(
                     inputimages[count], img_output,
@@ -352,7 +413,7 @@ def GetMonoDepth():
                 for c in range(0, len(stereoimages)):
                     yield count, inputs['stereo_modes'][c], stereoimages[c]
 
-            if inputs['gen_normalmap']:
+            if genNormalMap:
                 normalmap = create_normalmap(
                     img_output,
                     inputs['normalmap_pre_blur_kernel'] if inputs['normalmap_pre_blur'] else None,
@@ -366,7 +427,7 @@ def GetMonoDepth():
             # if inputs['gen_simple_mesh']:
             #     print(f"\nGenerating (occluded) mesh ..")
             #     basename = 'depthmap'
-            #     meshsimple_fi = get_uniquefn( inputs['output_path'], basename, 'obj', 'simple')
+            #     meshsimple_fi = get_uniquefn( inputs['output_path'], basename, 'obj')
 
             #     depthi = raw_prediction if raw_prediction is not None else out
             #     depthi_min, depthi_max = depthi.min(), depthi.max()
@@ -410,33 +471,210 @@ def GetMonoDepth():
         else:
             print('Fail.\n')
             raise e
-    finally:
-        if inputs['depthmap_script_keepmodels'] == True:
-            model_holder.offload()  # Swap to CPU memory
+    
+
+
+def finishInference():
+    if inputs['depthmap_script_keepmodels'] == True:
+        model_holder.offload()  # Swap to CPU memory
+    else:
+        model_holder.unload_models()
+    gc.collect()
+    torch_gc()
+
+
+
+def open_path_as_images(path, maybe_depthvideo=False):
+    """Takes the filepath, returns (fps, frames). Every frame is a Pillow Image object"""
+    suffix = pathlib.Path(path).suffix
+    if suffix.lower() == '.gif':
+        frames = []
+        img = Image.open(path)
+        for i in range(img.n_frames):
+            img.seek(i)
+            frames.append(img.convert('RGB'))
+        return 1000 / img.info['duration'], frames
+    if suffix.lower() == '.mts':
+        import imageio_ffmpeg
+        import av
+        container = av.open(path)
+        frames = []
+        for packet in container.demux(video=0):
+            for frame in packet.decode():
+                # Convert the frame to a NumPy array
+                numpy_frame = frame.to_ndarray(format='rgb24')
+                # Convert the NumPy array to a Pillow Image
+                image = Image.fromarray(numpy_frame)
+                frames.append(image)
+        fps = float(container.streams.video[0].average_rate)
+        container.close()
+        return fps, frames
+    if suffix.lower() in ['.avi'] and maybe_depthvideo:
+        try:
+            import imageio_ffmpeg
+            # Suppose there are in fact 16 bits per pixel
+            # If this is not the case, this is not a 16-bit depthvideo, so no need to process it this way
+            gen = imageio_ffmpeg.read_frames(path, pix_fmt='gray16le', bits_per_pixel=16)
+            video_info = next(gen)
+            if video_info['pix_fmt'] == 'gray16le':
+                width, height = video_info['size']
+                frames = []
+                for frame in gen:
+                    # Not sure if this is implemented somewhere else
+                    result = np.frombuffer(frame, dtype='uint16')
+                    result.shape = (height, width)  # Why does it work? I don't remotely have any idea.
+                    frames += [Image.fromarray(result)]
+                    # TODO: Wrapping frames into Pillow objects is wasteful
+                return video_info['fps'], frames
+        finally:
+            if 'gen' in locals():
+                gen.close()
+    if suffix.lower() in ['.webm', '.mp4', '.avi']:
+        from moviepy.video.io.VideoFileClip import VideoFileClip
+        clip = VideoFileClip(path)
+        frames = [Image.fromarray(x) for x in list(clip.iter_frames())]
+        # TODO: Wrapping frames into Pillow objects is wasteful
+        return clip.fps, frames
+    else:
+        try:
+            return 1, [Image.open(path)]
+        except Exception as e:
+            raise Exception(f"Probably an unsupported file format: {suffix}") from e
+
+
+def frames_to_video(fps, frames, path, name, colorvids_bitrate=None):
+    if frames[0].mode == 'I;16':  # depthmap video
+        import imageio_ffmpeg
+        writer = imageio_ffmpeg.write_frames(
+            os.path.join(path, f"{name}.avi"), frames[0].size, 'gray16le', 'gray16le', fps, codec='ffv1',
+            macro_block_size=1)
+        try:
+            writer.send(None)
+            for frame in frames:
+                writer.send(np.array(frame))
+        finally:
+            writer.close()
+    else:
+        arrs = [np.asarray(frame) for frame in frames]
+        from moviepy.video.io.ImageSequenceClip import ImageSequenceClip
+        clip = ImageSequenceClip(arrs, fps=fps)
+        done = False
+        priority = [('avi', 'png'), ('avi', 'rawvideo'), ('mp4', 'libx264') ] #, ('webm', 'libvpx')]
+        if colorvids_bitrate:
+            priority = reversed(priority)
+        for v_format, codec in priority:
+            try:
+                br = f'{colorvids_bitrate}k' if codec not in ['png', 'rawvideo'] else None
+                clip.write_videofile(os.path.join(path, f"{name}.{v_format}"), codec=codec, bitrate=br)
+                done = True
+                break
+            except:
+                traceback.print_exc()
+        if not done:
+            raise Exception('Saving the video failed!')
+
+
+def process_predicitons(predictions, smoothening='none'):
+    def global_scaling(objs, a=None, b=None):
+        """Normalizes objs, but uses (a, b) instead of (minimum, maximum) value of objs, if supplied"""
+        normalized = []
+        min_value = a if a is not None else min([obj.min() for obj in objs])
+        max_value = b if b is not None else max([obj.max() for obj in objs])
+        for obj in objs:
+            normalized += [(obj - min_value) / (max_value - min_value)]
+        return normalized
+    
+    predictions = [ np.asarray(x).astype(float) for x in predictions if isinstance(x, Image.Image)]
+    print('Processing generated depthmaps')
+    # TODO: Detect cuts and process segments separately
+    if smoothening == 'none':
+        predictions = global_scaling(predictions)
+    elif smoothening == 'experimental':
+        processed = []
+        clip = lambda val: min(max(0, val), len(predictions) - 1)
+        for i in range(len(predictions)):
+            f = np.zeros_like(predictions[i])
+            for u, mul in enumerate([0.10, 0.20, 0.40, 0.20, 0.10]):  # Eyeballed it, math person please fix this
+                f += mul * predictions[clip(i + (u - 2))]
+            processed += [f]
+        # This could have been deterministic monte carlo... Oh well, this version is faster.
+        a, b = np.percentile(np.stack(processed), [0.5, 99.5])
+        predictions = global_scaling(predictions, a, b)
+    predictions = [ Image.fromarray(x) for x in predictions ]
+    return predictions
+
+
+def gen_video(videos, custom_depthmaps, outpath, colorvids_bitrate=None, smoothening='none'):
+    # if inp[go.GEN_SIMPLE_MESH.name.lower()] or inp[go.GEN_INPAINTED_MESH.name.lower()]:
+    #     return 'Creating mesh-videos is not supported. Please split video into frames and use batch processing.'
+    for index in range(len(videos)):
+        video = videos[index]
+        if custom_depthmaps is None:
+            custom_depthmap = None
         else:
-            model_holder.unload_models()
-        gc.collect()
-        torch_gc()
+            custom_depthmap = custom_depthmaps[index]
+
+        fps, input_images = open_path_as_images(os.path.abspath(video))
+        os.makedirs(inputs['output_path'], exist_ok=True)
+
+        if custom_depthmap is None:
+            print('Generating depthmaps for the video frames')
+            # firstly, create depth only
+            gen_obj = GetMonoDepth( input_images, [], {'gen_normalmap': False, 'gen_stereo': False, 'do_output_depth': True, 'gen_rembg': False} )
+            input_depths = [x[2] for x in list(gen_obj)]
+            # 全部是PIL.Image.Image 类型
+            input_depths = process_predicitons(input_depths, smoothening)
+        else:
+            print('Using custom depthmap video')
+            cdm_fps, input_depths = open_path_as_images(os.path.abspath(custom_depthmap), maybe_depthvideo=True)
+            assert len(input_depths) == len(input_images), 'Custom depthmap video length does not match input video length'
+            if input_depths[0].size != input_images[0].size:
+                print('Warning! Input video size and depthmap video size are not the same!')
+
+        print('Generating output frames')
+        img_results = list(GetMonoDepth( input_images, input_depths))
+        gens = list(set(map(lambda x: x[1], img_results)))
+
+        print('Saving generated frames as video outputs')
+        for gen in gens:
+            print('>> ', gen)
+            imgs = [x[2] for x in img_results if x[1] == gen]
+            basename = f'{gen}_video'
+            frames_to_video(fps, imgs, outpath, f"{basename}-{get_time_uuid()}", colorvids_bitrate)
+    print('All done. Video(s) saved!')
+
 
 
 if __name__ == '__main__':
     logger.add("2dto3d.log")
 
     InitModel()
-    gen_proc = GetMonoDepth()
-    
-    img_results = []
 
-    try:
-        while True:
-            input_i, type, result = next(gen_proc)
-            outputFilePath = get_uniquefn(inputs['output_path'], type, 'png', '')
-            logger.info("images, {0}, {1}".format(outputFilePath, inputs) )
-            result.save(outputFilePath )
+    data =  ["/code/data/0001.png", "/code/data/Rockefeller_left.jpg"]
+    dataVideo = ["/code/data/dance1.mp4", "/code/data/dance2.mp4"]
 
-    except StopIteration:
-        print('===Down===')
-    
+
+    if len(data) > 0:
+        gen_proc = GetMonoDepth(data)
+        try:
+            while True:
+                input_i, type, result = next(gen_proc)
+                outputFilePath = get_uniquefn(inputs['output_path'], type, 'png' )
+                logger.info("images, {0}, {1}".format(outputFilePath, inputs) )
+                result.save(outputFilePath )
+
+        except StopIteration:
+            print('===Down===')
+        
+    if len(dataVideo)>0:
+        custom_depthmap = inputs['depthmap_vm_custom'] \
+            if inputs['depthmap_vm_custom_checkbox'] else None
+        colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \
+            if inputs['depthmap_vm_compress_checkbox'] else None
+        gen_proc = gen_video(dataVideo, custom_depthmap, inputs['output_path'],  colorvids_bitrate, inputs['depthmap_vm_smoothening_mode'])
+
+    # img_results = []
+
     # img_results += [(input_i, type, result)]
 
     # print(img_results)

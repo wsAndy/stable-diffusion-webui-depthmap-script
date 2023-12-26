@@ -10,7 +10,7 @@ def get_commit_hash():
             [os.environ.get("GIT", "git"), "rev-parse", "HEAD"],
             cwd=file_path, shell=False, stderr=subprocess.DEVNULL, encoding='utf8').strip()[0:8]
     except Exception:
-        return "<none>"
+        return "none"
 
 
 REPOSITORY_NAME = "stable-diffusion-webui-depthmap-script"

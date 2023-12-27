@@ -5,7 +5,7 @@ from pathlib import Path
 import pathlib
 
 try:
-    from tqdm import trange
+    from tqdm import trange 
 except:
     from builtins import range as trange
 
@@ -25,6 +25,7 @@ import gc
 from loguru import logger
 import yaml
 import datetime 
+import time
 
 def format_exception(e: Exception):
     traceback.print_exc()
@@ -36,28 +37,27 @@ def format_exception(e: Exception):
 
 inputs = {}
 
-inputs['depthmap_script_keepmodels'] = True
+inputs['depthmap_script_keepmodels'] = False
 inputs['output_path'] = "/code/outputs"
 inputs['compute_device'] = 'GPU'
-# inputs['depthmap_input_image'] = Image.open('/code/data/0001.png') # PIL的一张原图
-# inputs['depthmap_mode'] = '0'  # 0: Single image, 1: Batch Process, 2: Batch Process From Directory, 3: video mode
+
 inputs['model_type'] = 9    # zoedepth_nk
 
-inputs['net_height'] = 512
+[w, h] = ModelHolder.get_default_net_size(inputs['model_type'])
+inputs['net_width'] = w
+inputs['net_height'] = h
+
 inputs['net_size_match'] = False
-inputs['net_width'] = 384
 
 inputs['save_outputs'] = True
 
-inputs['stereo_balance'] = -1
+inputs['stereo_balance'] = 0
 inputs['stereo_divergence'] = 2.5
 inputs['stereo_fill_algo'] = 'polylines_sharp'
 inputs['stereo_modes'] = ['left-right']
 inputs['stereo_offset_exponent'] = 2
 inputs['stereo_separation'] = 0
-
 inputs['do_output_depth'] = False
-
 
 
 inputs['boost'] = False
@@ -66,21 +66,18 @@ inputs['clipdepth_far'] = 0
 inputs['clipdepth_mode'] = 'Range'
 inputs['clipdepth_near'] = 1
 
-inputs['depthmap_batch_input_dir'] = ''
-inputs['depthmap_batch_output_dir'] = ''
-inputs['depthmap_batch_reuse'] = True
 
 inputs['depthmap_vm_compress_bitrate'] = 10000
 inputs['depthmap_vm_compress_checkbox'] = True # avi to mp4
+inputs['depthmap_vm_smoothening_mode'] = 'experimental'
 inputs['depthmap_vm_custom'] = None
 inputs['depthmap_vm_custom_checkbox'] = False
 inputs['depthmap_vm_input'] = None
-inputs['depthmap_vm_smoothening_mode'] = 'experimental'
 
 inputs['gen_inpainted_mesh'] = False
 inputs['gen_inpainted_mesh_demos'] = False
 inputs['gen_normalmap'] = False
-inputs['gen_simple_mesh'] = False
+# inputs['gen_simple_mesh'] = False
 inputs['gen_stereo'] = True
 inputs['image_batch'] = None
 
@@ -98,15 +95,12 @@ inputs['output_depth_invert'] = False
 inputs['pre_depth_background_removal'] = False
 
 inputs['rembg_model'] = 'u2net'
-inputs['gen_rembg'] = False
+inputs['gen_rembg'] = False # remove background
 inputs['save_background_removal_masks'] = False
 
 inputs['simple_mesh_occlude'] = False
 inputs['simple_mesh_spherical'] = False
 
-
-inputs['custom_depthmap'] = False
-inputs['custom_depthmap_img'] = None
 
 ######## load model
 
@@ -472,15 +466,16 @@ def GetMonoDepth( input_images_path = [], input_depth_path = [], ops = {} ):
             print('Fail.\n')
             raise e
     
-
+def doGC():
+    gc.collect()
+    torch_gc()
 
 def finishInference():
     if inputs['depthmap_script_keepmodels'] == True:
         model_holder.offload()  # Swap to CPU memory
     else:
         model_holder.unload_models()
-    gc.collect()
-    torch_gc()
+    doGC()
 
 
 
@@ -493,7 +488,7 @@ def open_path_as_images(path, maybe_depthvideo=False):
         for i in range(img.n_frames):
             img.seek(i)
             frames.append(img.convert('RGB'))
-        return 1000 / img.info['duration'], frames
+        return 1000 / img.info['duration'], frames, None
     if suffix.lower() == '.mts':
         import imageio_ffmpeg
         import av
@@ -508,7 +503,7 @@ def open_path_as_images(path, maybe_depthvideo=False):
                 frames.append(image)
         fps = float(container.streams.video[0].average_rate)
         container.close()
-        return fps, frames
+        return fps, frames, None
     if suffix.lower() in ['.avi'] and maybe_depthvideo:
         try:
             import imageio_ffmpeg
@@ -525,7 +520,7 @@ def open_path_as_images(path, maybe_depthvideo=False):
                     result.shape = (height, width)  # Why does it work? I don't remotely have any idea.
                     frames += [Image.fromarray(result)]
                     # TODO: Wrapping frames into Pillow objects is wasteful
-                return video_info['fps'], frames
+                return video_info['fps'], frames, None
         finally:
             if 'gen' in locals():
                 gen.close()
@@ -534,7 +529,7 @@ def open_path_as_images(path, maybe_depthvideo=False):
         clip = VideoFileClip(path)
         frames = [Image.fromarray(x) for x in list(clip.iter_frames())]
         # TODO: Wrapping frames into Pillow objects is wasteful
-        return clip.fps, frames
+        return clip.fps, frames, clip.audio
     else:
         try:
             return 1, [Image.open(path)]
@@ -542,7 +537,7 @@ def open_path_as_images(path, maybe_depthvideo=False):
             raise Exception(f"Probably an unsupported file format: {suffix}") from e
 
 
-def frames_to_video(fps, frames, path, name, colorvids_bitrate=None):
+def frames_to_video(fps, frames, sound, path, name, colorvids_bitrate=None):
     if frames[0].mode == 'I;16':  # depthmap video
         import imageio_ffmpeg
         writer = imageio_ffmpeg.write_frames(
@@ -565,6 +560,7 @@ def frames_to_video(fps, frames, path, name, colorvids_bitrate=None):
         for v_format, codec in priority:
             try:
                 br = f'{colorvids_bitrate}k' if codec not in ['png', 'rawvideo'] else None
+                clip.audio = sound
                 clip.write_videofile(os.path.join(path, f"{name}.{v_format}"), codec=codec, bitrate=br)
                 done = True
                 break
@@ -607,14 +603,17 @@ def process_predicitons(predictions, smoothening='none'):
 def gen_video(videos, custom_depthmaps, outpath, colorvids_bitrate=None, smoothening='none'):
     # if inp[go.GEN_SIMPLE_MESH.name.lower()] or inp[go.GEN_INPAINTED_MESH.name.lower()]:
     #     return 'Creating mesh-videos is not supported. Please split video into frames and use batch processing.'
+
     for index in range(len(videos)):
+        startTime = time.time()
+
         video = videos[index]
         if custom_depthmaps is None:
             custom_depthmap = None
         else:
             custom_depthmap = custom_depthmaps[index]
 
-        fps, input_images = open_path_as_images(os.path.abspath(video))
+        fps, input_images, sound = open_path_as_images(os.path.abspath(video))
         os.makedirs(inputs['output_path'], exist_ok=True)
 
         if custom_depthmap is None:
@@ -626,7 +625,7 @@ def gen_video(videos, custom_depthmaps, outpath, colorvids_bitrate=None, smoothe
             input_depths = process_predicitons(input_depths, smoothening)
         else:
             print('Using custom depthmap video')
-            cdm_fps, input_depths = open_path_as_images(os.path.abspath(custom_depthmap), maybe_depthvideo=True)
+            cdm_fps, input_depths, _ = open_path_as_images(os.path.abspath(custom_depthmap), maybe_depthvideo=True)
             assert len(input_depths) == len(input_images), 'Custom depthmap video length does not match input video length'
             if input_depths[0].size != input_images[0].size:
                 print('Warning! Input video size and depthmap video size are not the same!')
@@ -637,10 +636,13 @@ def gen_video(videos, custom_depthmaps, outpath, colorvids_bitrate=None, smoothe
 
         print('Saving generated frames as video outputs')
         for gen in gens:
-            print('>> ', gen)
             imgs = [x[2] for x in img_results if x[1] == gen]
-            basename = f'{gen}_video'
-            frames_to_video(fps, imgs, outpath, f"{basename}-{get_time_uuid()}", colorvids_bitrate)
+            
+            basename = f'{os.path.basename(video).split(".")[0]}_{gen}_video'
+            frames_to_video(fps, imgs, sound, outpath, f"{basename}-{get_time_uuid()}", colorvids_bitrate)
+
+        logger.info("{0} cost time: {1:.2f}, size: {2}x{3}, number: {4}".format(video, time.time()-startTime, input_images[0].size[0], input_images[0].size[1], len(input_images) ) )
+        doGC()
     print('All done. Video(s) saved!')
 
 
@@ -650,9 +652,11 @@ if __name__ == '__main__':
 
     InitModel()
 
-    data =  ["/code/data/0001.png", "/code/data/Rockefeller_left.jpg"]
-    dataVideo = ["/code/data/dance1.mp4", "/code/data/dance2.mp4"]
-
+    data = []# ["/code/data/0001.png", "/code/data/Rockefeller_left.jpg"]
+    
+    # dataVideo = [ os.path.join("/code/data/v/", x ) for x in os.listdir("/code/data/v/") if x.lower().endswith('mp4')]
+    dataVideo = ['/code/data/v/env2.mp4', '/code/data/v/env3.mp4',  '/code/data/v/multi_people_dance.mp4',  '/code/data/v/solo_boy_dance1.mp4', '/code/data/v/solo_girl_dance2.mp4',  '/code/data/v/solo_girl_dance3.mp4',  '/code/data/v/solo_girl_dance4.mp4']
+    # dataVideo = ["/code/data/dance1.mp4", "/code/data/dance2.mp4"]
 
     if len(data) > 0:
         gen_proc = GetMonoDepth(data)
@@ -678,3 +682,7 @@ if __name__ == '__main__':
     # img_results += [(input_i, type, result)]
 
     # print(img_results)
+
+
+
+

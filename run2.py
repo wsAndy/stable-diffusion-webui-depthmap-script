@@ -38,7 +38,7 @@ def format_exception(e: Exception):
 inputs = {}
 
 inputs['depthmap_script_keepmodels'] = False
-inputs['output_path'] = "/code/outputs"
+inputs['output_path'] = "/code/outputs/img_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 inputs['compute_device'] = 'GPU'
 
 inputs['model_type'] = 9    # zoedepth_nk
@@ -287,6 +287,8 @@ def GetMonoDepth( input_images_path = [], input_depth_path = [], ops = {} ):
             # Convert single channel input (PIL) images to rgb
             if inputimages[count].mode == 'I':
                 inputimages[count].point(lambda p: p * 0.0039063096, mode='RGB')
+                inputimages[count] = inputimages[count].convert('RGB')
+            if inputimages[count].mode == 'RGBA':
                 inputimages[count] = inputimages[count].convert('RGB')
 
             raw_prediction = None
@@ -652,7 +654,8 @@ if __name__ == '__main__':
 
     InitModel()
 
-    data = []# ["/code/data/0001.png", "/code/data/Rockefeller_left.jpg"]
+    # data = [ os.path.join("/code/data/img/", x ) for x in os.listdir("/code/data/img/") if x.lower().endswith('png')]
+    data = ["/code/data/img/0012.png", "/code/data/img/0013.png", "/code/data/img/0014.png", "/code/data/img/0015.png", "/code/data/img/0016.png", "/code/data/img/0017.png"]
     
     # dataVideo = [ os.path.join("/code/data/v/", x ) for x in os.listdir("/code/data/v/") if x.lower().endswith('mp4')]
     dataVideo = ['/code/data/v/env2.mp4', '/code/data/v/env3.mp4',  '/code/data/v/multi_people_dance.mp4',  '/code/data/v/solo_boy_dance1.mp4', '/code/data/v/solo_girl_dance2.mp4',  '/code/data/v/solo_girl_dance3.mp4',  '/code/data/v/solo_girl_dance4.mp4']
@@ -670,12 +673,12 @@ if __name__ == '__main__':
         except StopIteration:
             print('===Down===')
         
-    if len(dataVideo)>0:
-        custom_depthmap = inputs['depthmap_vm_custom'] \
-            if inputs['depthmap_vm_custom_checkbox'] else None
-        colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \
-            if inputs['depthmap_vm_compress_checkbox'] else None
-        gen_proc = gen_video(dataVideo, custom_depthmap, inputs['output_path'],  colorvids_bitrate, inputs['depthmap_vm_smoothening_mode'])
+    # if len(dataVideo)>0:
+    #     custom_depthmap = inputs['depthmap_vm_custom'] \
+    #         if inputs['depthmap_vm_custom_checkbox'] else None
+    #     colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \
+    #         if inputs['depthmap_vm_compress_checkbox'] else None
+    #     gen_proc = gen_video(dataVideo, custom_depthmap, inputs['output_path'],  colorvids_bitrate, inputs['depthmap_vm_smoothening_mode'])
 
     # img_results = []
 

@@ -3,7 +3,7 @@ import os
 import datetime
 
 
-path = os.path.join(r"/code/data/1229")
+path = os.path.join(r"/code/data/1229_v2")
 
 files = [ os.path.join(path, x) for x in os.listdir(path)]
 
@@ -58,3 +58,4 @@ def resize_videos(input_folder, output_folder, max_width=1920, max_height=1080):
 
 
 resize_videos(path, path)
+

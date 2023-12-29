@@ -52,10 +52,10 @@ inputs['net_size_match'] = False
 inputs['save_outputs'] = True
 
 inputs['stereo_balance'] = 0
-inputs['stereo_divergence'] = 2.5
+inputs['stereo_divergence'] = 5
 inputs['stereo_fill_algo'] = 'polylines_sharp'
 inputs['stereo_modes'] = ['left-right']
-inputs['stereo_offset_exponent'] = 2
+inputs['stereo_offset_exponent'] = 5 # (depth ** stereo_offset_exponent) * stereo_divergence * width /100 . 越大，背景部分的视差越小
 inputs['stereo_separation'] = 0
 inputs['do_output_depth'] = False
 
@@ -648,18 +648,33 @@ def gen_video(videos, custom_depthmaps, outpath, colorvids_bitrate=None, smoothe
     print('All done. Video(s) saved!')
 
 
+def calculateTime(allFiles):
+    import moviepy.editor as mp
+
+    second = 0
+    for input_path in allFiles:
+        video_clip = mp.VideoFileClip(input_path)
+        second = second + video_clip.size[0] * video_clip.size[1] * len(list(video_clip.iter_frames())) / 1200000
+        
+    print('--- 预计耗时大于: {0} 秒'.format(second))
+    
 
 if __name__ == '__main__':
     logger.add("2dto3d.log")
 
     InitModel()
-    data = []
+    data = []# ["/code/data/Rockefeller_left.jpg"]
     # data = [ os.path.join("/code/data/img/", x ) for x in os.listdir("/code/data/img/") if x.lower().endswith('png')]
     # data = ["/code/data/img/0009.png"] #, "/code/data/img/0013.png", "/code/data/img/0014.png", "/code/data/img/0015.png", "/code/data/img/0016.png", "/code/data/img/0017.png"]
     
-    dataVideo = ['/code/data/test.mp4'] # [ os.path.join("/code/data/1229/", x ) for x in os.listdir("/code/data/1229/") if x.lower().endswith('mp4')]
+    dataVideo = [ os.path.join("/code/data/1229_v2/", x ) for x in os.listdir("/code/data/1229_v2/") if x.lower().endswith('mp4')]
     # dataVideo = ['/code/data/v/env2.mp4', '/code/data/v/env3.mp4',  '/code/data/v/multi_people_dance.mp4',  '/code/data/v/solo_boy_dance1.mp4', '/code/data/v/solo_girl_dance2.mp4',  '/code/data/v/solo_girl_dance3.mp4',  '/code/data/v/solo_girl_dance4.mp4']
     # dataVideo = ["/code/data/dance1.mp4", "/code/data/dance2.mp4"]
+
+    dataVideo = sorted(dataVideo, key=lambda file_path: os.stat(file_path).st_size)
+
+    logger.info( str(dataVideo) )
+
 
     if len(data) > 0:
         gen_proc = GetMonoDepth(data)
@@ -667,18 +682,18 @@ if __name__ == '__main__':
             while True:
                 input_i, type, result = next(gen_proc)
 
-                if type == 'depth':
-                    C = np.asarray(result)
-                    Cmin = C.min()
-                    Cmax = C.max()
-                    c = (C - Cmin)/(Cmax - Cmin)
-                    c = (c * 255).astype(np.uint8)
-                    mask = c >= (np.mean(c) + np.max(c))/2
-                    d = c * mask
-                    dp = Image.fromarray(d)
-                    dp.save('/code/data/img_nobg/{0}_d.png'.format( input_i ) )
-                else:
-                    continue
+                # if type == 'depth':
+                #     C = np.asarray(result)
+                #     Cmin = C.min()
+                #     Cmax = C.max()
+                #     c = (C - Cmin)/(Cmax - Cmin)
+                #     c = (c * 255).astype(np.uint8)
+                #     mask = c >= (np.mean(c) + np.max(c))/2
+                #     d = c * mask
+                #     dp = Image.fromarray(d)
+                #     dp.save('/code/data/img_nobg/{0}_d.png'.format( input_i ) )
+                # else:
+                #     continue
 
                 outputFilePath = get_uniquefn(inputs['output_path'], type, 'png' )
                 logger.info("images, {0}, {1}".format(outputFilePath, inputs) )
@@ -688,6 +703,9 @@ if __name__ == '__main__':
             print('===Down===')
         
     if len(dataVideo)>0:
+
+        calculateTime(dataVideo)
+        
         custom_depthmap = inputs['depthmap_vm_custom'] \
             if inputs['depthmap_vm_custom_checkbox'] else None
         colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \

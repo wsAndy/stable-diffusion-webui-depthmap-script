@@ -40,7 +40,7 @@ def create_stereoimages(original_image, depthmap, divergence, separation=0.0, mo
         modes = [modes]
     if len(modes) == 0:
         return []
-
+    
     original_image = np.asarray(original_image)
     balance = (stereo_balance + 1) / 2
     left_eye = original_image if balance < 0.001 else \
@@ -167,7 +167,6 @@ def apply_stereo_divergence_polylines(
     EPSILON = 1e-7
     PIXEL_HALF_WIDTH = 0.45 if fill_technique == 'polylines_sharp' else 0.0
     # PERF_COUNTERS = [0, 0, 0]
-
     h, w, c = original_image.shape
     derived_image = np.zeros_like(original_image)
     for row in prange(h):
@@ -178,7 +177,8 @@ def apply_stereo_divergence_polylines(
         pt[pt_end] = [-1.0 * w, 0.0, 0.0]
         pt_end += 1
         for col in range(0, w):
-            coord_d = (normalized_depth[row][col] ** stereo_offset_exponent) * divergence_px
+            # 相当于对depth做一次非线性的缩放
+            coord_d = (normalized_depth[row][col] ** stereo_offset_exponent) * divergence_px    
             coord_x = col + 0.5 + coord_d + separation_px
             if PIXEL_HALF_WIDTH < EPSILON:
                 pt[pt_end] = [coord_x, abs(coord_d), col]

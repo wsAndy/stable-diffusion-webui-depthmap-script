@@ -38,7 +38,7 @@ def format_exception(e: Exception):
 inputs = {}
 
 inputs['depthmap_script_keepmodels'] = False
-inputs['output_path'] = "/code/outputs/img_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+inputs['output_path'] = "/code/outputs/1229" #"/code/outputs/img_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 inputs['compute_device'] = 'GPU'
 
 inputs['model_type'] = 9    # zoedepth_nk
@@ -67,7 +67,7 @@ inputs['clipdepth_mode'] = 'Range'
 inputs['clipdepth_near'] = 1
 
 
-inputs['depthmap_vm_compress_bitrate'] = 10000
+inputs['depthmap_vm_compress_bitrate'] = 4000 # 720p的差不多了
 inputs['depthmap_vm_compress_checkbox'] = True # avi to mp4
 inputs['depthmap_vm_smoothening_mode'] = 'experimental'
 inputs['depthmap_vm_custom'] = None
@@ -563,7 +563,7 @@ def frames_to_video(fps, frames, sound, path, name, colorvids_bitrate=None):
             try:
                 br = f'{colorvids_bitrate}k' if codec not in ['png', 'rawvideo'] else None
                 clip.audio = sound
-                clip.write_videofile(os.path.join(path, f"{name}.{v_format}"), codec=codec, bitrate=br)
+                clip.write_videofile(os.path.join(path, f"{name}.{v_format}"), codec=codec, bitrate=br, audio_codec="aac")
                 done = True
                 break
             except:
@@ -653,12 +653,12 @@ if __name__ == '__main__':
     logger.add("2dto3d.log")
 
     InitModel()
-
+    data = []
     # data = [ os.path.join("/code/data/img/", x ) for x in os.listdir("/code/data/img/") if x.lower().endswith('png')]
-    data = ["/code/data/img/0012.png", "/code/data/img/0013.png", "/code/data/img/0014.png", "/code/data/img/0015.png", "/code/data/img/0016.png", "/code/data/img/0017.png"]
+    # data = ["/code/data/img/0009.png"] #, "/code/data/img/0013.png", "/code/data/img/0014.png", "/code/data/img/0015.png", "/code/data/img/0016.png", "/code/data/img/0017.png"]
     
-    # dataVideo = [ os.path.join("/code/data/v/", x ) for x in os.listdir("/code/data/v/") if x.lower().endswith('mp4')]
-    dataVideo = ['/code/data/v/env2.mp4', '/code/data/v/env3.mp4',  '/code/data/v/multi_people_dance.mp4',  '/code/data/v/solo_boy_dance1.mp4', '/code/data/v/solo_girl_dance2.mp4',  '/code/data/v/solo_girl_dance3.mp4',  '/code/data/v/solo_girl_dance4.mp4']
+    dataVideo = ['/code/data/test.mp4'] # [ os.path.join("/code/data/1229/", x ) for x in os.listdir("/code/data/1229/") if x.lower().endswith('mp4')]
+    # dataVideo = ['/code/data/v/env2.mp4', '/code/data/v/env3.mp4',  '/code/data/v/multi_people_dance.mp4',  '/code/data/v/solo_boy_dance1.mp4', '/code/data/v/solo_girl_dance2.mp4',  '/code/data/v/solo_girl_dance3.mp4',  '/code/data/v/solo_girl_dance4.mp4']
     # dataVideo = ["/code/data/dance1.mp4", "/code/data/dance2.mp4"]
 
     if len(data) > 0:
@@ -666,6 +666,20 @@ if __name__ == '__main__':
         try:
             while True:
                 input_i, type, result = next(gen_proc)
+
+                if type == 'depth':
+                    C = np.asarray(result)
+                    Cmin = C.min()
+                    Cmax = C.max()
+                    c = (C - Cmin)/(Cmax - Cmin)
+                    c = (c * 255).astype(np.uint8)
+                    mask = c >= (np.mean(c) + np.max(c))/2
+                    d = c * mask
+                    dp = Image.fromarray(d)
+                    dp.save('/code/data/img_nobg/{0}_d.png'.format( input_i ) )
+                else:
+                    continue
+
                 outputFilePath = get_uniquefn(inputs['output_path'], type, 'png' )
                 logger.info("images, {0}, {1}".format(outputFilePath, inputs) )
                 result.save(outputFilePath )
@@ -673,12 +687,12 @@ if __name__ == '__main__':
         except StopIteration:
             print('===Down===')
         
-    # if len(dataVideo)>0:
-    #     custom_depthmap = inputs['depthmap_vm_custom'] \
-    #         if inputs['depthmap_vm_custom_checkbox'] else None
-    #     colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \
-    #         if inputs['depthmap_vm_compress_checkbox'] else None
-    #     gen_proc = gen_video(dataVideo, custom_depthmap, inputs['output_path'],  colorvids_bitrate, inputs['depthmap_vm_smoothening_mode'])
+    if len(dataVideo)>0:
+        custom_depthmap = inputs['depthmap_vm_custom'] \
+            if inputs['depthmap_vm_custom_checkbox'] else None
+        colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \
+            if inputs['depthmap_vm_compress_checkbox'] else None
+        gen_proc = gen_video(dataVideo, custom_depthmap, inputs['output_path'],  colorvids_bitrate, inputs['depthmap_vm_smoothening_mode'])
 
     # img_results = []
 

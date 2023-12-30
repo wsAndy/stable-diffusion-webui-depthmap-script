@@ -658,6 +658,11 @@ def calculateTime(allFiles):
         
     print('--- 预计耗时大于: {0} 秒'.format(second))
     
+def getDuration(file):
+    import moviepy.editor as mp
+    video = mp.VideoFileClip(file)
+    return video.duration
+
 
 if __name__ == '__main__':
     logger.add("2dto3d.log")
@@ -667,11 +672,15 @@ if __name__ == '__main__':
     # data = [ os.path.join("/code/data/img/", x ) for x in os.listdir("/code/data/img/") if x.lower().endswith('png')]
     # data = ["/code/data/img/0009.png"] #, "/code/data/img/0013.png", "/code/data/img/0014.png", "/code/data/img/0015.png", "/code/data/img/0016.png", "/code/data/img/0017.png"]
     
-    dataVideo = [ os.path.join("/code/data/1229_v2/", x ) for x in os.listdir("/code/data/1229_v2/") if x.lower().endswith('mp4')]
-    # dataVideo = ['/code/data/v/env2.mp4', '/code/data/v/env3.mp4',  '/code/data/v/multi_people_dance.mp4',  '/code/data/v/solo_boy_dance1.mp4', '/code/data/v/solo_girl_dance2.mp4',  '/code/data/v/solo_girl_dance3.mp4',  '/code/data/v/solo_girl_dance4.mp4']
-    # dataVideo = ["/code/data/dance1.mp4", "/code/data/dance2.mp4"]
+    # dataVideo = [ os.path.join("/code/data/1229_v2/", x ) for x in os.listdir("/code/data/1229_v2/") if x.lower().endswith('mp4')]
 
-    dataVideo = sorted(dataVideo, key=lambda file_path: os.stat(file_path).st_size)
+    # 遇到16时出现奔溃的情况，具体原因尚未知晓
+    dataVideo = ['/code/data/1229_v2/000016.mp4', '/code/data/1229_v2/000025.mp4', '/code/data/1229_v2/000020.mp4', '/code/data/1229_v2/000030.mp4', '/code/data/1229_v2/000021_resize.mp4', '/code/data/1229_v2/000031_resize.mp4', '/code/data/1229_v2/000019_resize.mp4', '/code/data/1229_v2/000026.mp4', '/code/data/1229_v2/000029_resize.mp4']
+
+    # dataVideo = sorted(dataVideo, key=lambda file_path: os.stat(file_path).st_size)
+
+    # 按照时长排序
+    dataVideo = sorted(dataVideo, key=lambda file_path: getDuration(file_path) )
 
     logger.info( str(dataVideo) )
 
@@ -704,7 +713,6 @@ if __name__ == '__main__':
         
     if len(dataVideo)>0:
 
-        calculateTime(dataVideo)
         
         custom_depthmap = inputs['depthmap_vm_custom'] \
             if inputs['depthmap_vm_custom_checkbox'] else None

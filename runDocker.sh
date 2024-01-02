@@ -1,1 +1,1 @@
-docker run --rm -it --gpus all -v "C:\Users\admin\.cache":/root/.cache -v "E:\aigc\webui\stable-diffusion-webui-depthmap-script":/code -v "E:\aigc\dataset":/datasets wsandy95/pytorch:2.1.0-cuda11.8-cudnn8-runtime
+docker run --rm -it --gpus all  --shm-size 8G  -v "C:\Users\admin\.cache":/root/.cache -v "E:\aigc\webui\stable-diffusion-webui-depthmap-script":/code -v "E:\aigc\dataset":/datasets wsandy95/pytorch:2.1.0-cuda11.8-cudnn8-runtime

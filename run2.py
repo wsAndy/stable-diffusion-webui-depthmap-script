@@ -616,6 +616,7 @@ def gen_video(videos, custom_depthmaps, outpath, colorvids_bitrate=None, smoothe
             custom_depthmap = custom_depthmaps[index]
 
         fps, input_images, sound = open_path_as_images(os.path.abspath(video))
+        # TODO input_images 需要改成迭代器
         os.makedirs(inputs['output_path'], exist_ok=True)
 
         if custom_depthmap is None:
@@ -684,7 +685,6 @@ if __name__ == '__main__':
 
     logger.info( str(dataVideo) )
 
-
     if len(data) > 0:
         gen_proc = GetMonoDepth(data)
         try:
@@ -712,8 +712,6 @@ if __name__ == '__main__':
             print('===Down===')
         
     if len(dataVideo)>0:
-
-        
         custom_depthmap = inputs['depthmap_vm_custom'] \
             if inputs['depthmap_vm_custom_checkbox'] else None
         colorvids_bitrate = inputs['depthmap_vm_compress_bitrate'] \
